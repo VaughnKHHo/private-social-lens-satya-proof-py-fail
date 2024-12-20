@@ -17,108 +17,136 @@ class Proof:
         self.config = config
         self.proof_response = ProofResponse(dlp_id=config['dlp_id'])
 
-
     def generate(self) -> ProofResponse:
         """Generate proofs for all input files."""
-        logging.info("Starting proof data")
+        logging.info("Starting proof generation")
+        self.proof_response.ownership = 0
+        self.proof_response.quality = 0
+        self.proof_response.authenticity = 0
+        self.proof_response.uniqueness = 0
 
-        data_revision = "01.01"
-        source_data = None
+        # Calculate overall score and validity
+        self.proof_response.score = 0
+        self.proof_response.valid = False
 
-        for input_filename in os.listdir(self.config['input_dir']):
-            input_file = os.path.join(self.config['input_dir'], input_filename)
-            with open(input_file, 'r') as f:
-                input_data = json.load(f)
-                source_data = get_source_data(
-                    input_data
-                )
-                break
-
-        salt = self.config['salt']
-        source_user_hash_64 = salted_data(
-            (source_data.source, source_data.user),
-            salt
-        )
-        source_data.submission_by = source_user_hash_64
-        proof_failed_reason = ""
-        verify_result = verify_token(
-            self.config,
-            source_data
-        )
-        is_data_authentic = verify_result
-        if is_data_authentic:
-            print(f"verify_result: {verify_result}")
-            is_data_authentic = verify_result.is_valid
-            proof_failed_reason = verify_result.error_text
-
-        cargo_data = CargoData(
-            source_data = source_data,
-            source_id = source_user_hash_64
-        )
-
-        metadata = MetaData(
-          source_id = source_user_hash_64,
-          dlp_id = self.config['dlp_id']
-        )
-
-        self.proof_response.ownership = 1.0 if is_data_authentic else 0.0
-        self.proof_response.authenticity = 1.0 if is_data_authentic else 0.0
-
-
-        current_datetime = datetime.now().isoformat()
-        if not is_data_authentic: #short circuit so we don't waste analysis
-            print(f"Validation proof failed: {proof_failed_reason}")
-            self.proof_response.score = 0.0
-            self.proof_response.uniqueness = 0.0
-            self.proof_response.quality = 0.0
-            self.proof_response.valid = False
-            self.proof_response.attributes = {
-                'proof_valid': False,
-                'proof_failed_reason': proof_failed_reason,
-                'did_score_content': False,
-                'source': source_data.source.name,
-                'revision': data_revision,
-                'submitted_on': current_datetime
-            }
-            self.proof_response.metadata = metadata
-            logging.info(f"ProofResponseAttributes: {json.dumps(self.proof_response.attributes, indent=2)}")
-            return self.proof_response
-
-        #validate/proof data ...
-        validate_data(
-            self.config,
-            cargo_data,
-            self.proof_response
-        )
-
-        score_threshold = 0.5 #UPDATE after testing some conversations
-        self.proof_response.valid = (
-            is_data_authentic
-            and self.proof_response.quality >= score_threshold
-            and self.proof_response.uniqueness >= score_threshold
-        )
-        total_score = 0.0 if not self.proof_response.valid else (
-              self.proof_response.quality * 0.5
-            + self.proof_response.uniqueness * 0.5
-        )
-        self.proof_response.score = round(total_score, 2)
+        # Additional (public) properties to include in the proof about the data
         self.proof_response.attributes = {
-            'score': self.proof_response.score,
-            'did_score_content': True,
-            'source': source_data.source.name,
-            'revision': data_revision,
-            'submitted_on': current_datetime
-            #'chat_data': None #RL: No longer generate usesful data...
+            'proof_valid': False,
+            'proof_failed_reason': 'auto-failing proof',
+            'did_score_content': False,
+            'source': 'Telegram',
+            'revision': 'auto-accept',
+            'submitted_on': datetime.now().isoformat(),
         }
-        self.proof_response.metadata = metadata
 
-        #Submit Source data to server
-        submit_data(
-            self.config,
-            source_data
-        )
-        logging.info(f"ProofResponseAttributes: {json.dumps(self.proof_response.attributes, indent=2)}")
+        # Additional metadata about the proof, written onchain
+        self.proof_response.metadata = {
+            'dlp_id': self.config['dlp_id'],
+        }
+
         return self.proof_response
+
+    # def generate(self) -> ProofResponse:
+    #     """Generate proofs for all input files."""
+    #     logging.info("Starting proof data")
+
+    #     data_revision = "01.01"
+    #     source_data = None
+
+    #     for input_filename in os.listdir(self.config['input_dir']):
+    #         input_file = os.path.join(self.config['input_dir'], input_filename)
+    #         with open(input_file, 'r') as f:
+    #             input_data = json.load(f)
+    #             source_data = get_source_data(
+    #                 input_data
+    #             )
+    #             break
+
+    #     salt = self.config['salt']
+    #     source_user_hash_64 = salted_data(
+    #         (source_data.source, source_data.user),
+    #         salt
+    #     )
+    #     source_data.submission_by = source_user_hash_64
+    #     proof_failed_reason = ""
+    #     verify_result = verify_token(
+    #         self.config,
+    #         source_data
+    #     )
+    #     is_data_authentic = verify_result
+    #     if is_data_authentic:
+    #         print(f"verify_result: {verify_result}")
+    #         is_data_authentic = verify_result.is_valid
+    #         proof_failed_reason = verify_result.error_text
+
+    #     cargo_data = CargoData(
+    #         source_data = source_data,
+    #         source_id = source_user_hash_64
+    #     )
+
+    #     metadata = MetaData(
+    #       source_id = source_user_hash_64,
+    #       dlp_id = self.config['dlp_id']
+    #     )
+
+    #     self.proof_response.ownership = 1.0 if is_data_authentic else 0.0
+    #     self.proof_response.authenticity = 1.0 if is_data_authentic else 0.0
+
+
+    #     current_datetime = datetime.now().isoformat()
+    #     if not is_data_authentic: #short circuit so we don't waste analysis
+    #         print(f"Validation proof failed: {proof_failed_reason}")
+    #         self.proof_response.score = 0.0
+    #         self.proof_response.uniqueness = 0.0
+    #         self.proof_response.quality = 0.0
+    #         self.proof_response.valid = False
+    #         self.proof_response.attributes = {
+    #             'proof_valid': False,
+    #             'proof_failed_reason': proof_failed_reason,
+    #             'did_score_content': False,
+    #             'source': source_data.source.name,
+    #             'revision': data_revision,
+    #             'submitted_on': current_datetime
+    #         }
+    #         self.proof_response.metadata = metadata
+    #         logging.info(f"ProofResponseAttributes: {json.dumps(self.proof_response.attributes, indent=2)}")
+    #         return self.proof_response
+
+    #     #validate/proof data ...
+    #     validate_data(
+    #         self.config,
+    #         cargo_data,
+    #         self.proof_response
+    #     )
+
+    #     score_threshold = 0.5 #UPDATE after testing some conversations
+    #     self.proof_response.valid = (
+    #         is_data_authentic
+    #         and self.proof_response.quality >= score_threshold
+    #         and self.proof_response.uniqueness >= score_threshold
+    #     )
+    #     total_score = 0.0 if not self.proof_response.valid else (
+    #           self.proof_response.quality * 0.5
+    #         + self.proof_response.uniqueness * 0.5
+    #     )
+    #     self.proof_response.score = round(total_score, 2)
+    #     self.proof_response.attributes = {
+    #         'score': self.proof_response.score,
+    #         'did_score_content': True,
+    #         'source': source_data.source.name,
+    #         'revision': data_revision,
+    #         'submitted_on': current_datetime
+    #         #'chat_data': None #RL: No longer generate usesful data...
+    #     }
+    #     self.proof_response.metadata = metadata
+
+    #     #Submit Source data to server
+    #     submit_data(
+    #         self.config,
+    #         source_data
+    #     )
+    #     logging.info(f"ProofResponseAttributes: {json.dumps(self.proof_response.attributes, indent=2)}")
+    #     return self.proof_response
 
 def get_telegram_data(
     submission_timestamp: datetime,
